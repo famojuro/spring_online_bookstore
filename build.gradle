@@ -1,0 +1,79 @@
+plugins {
+	id 'org.springframework.boot' version '2.5.1'
+	id 'io.spring.dependency-management' version '1.0.11.RELEASE'
+	id 'java'
+	id 'war'
+    id "org.flywaydb.flyway" version "6.4.1"
+}
+
+group = 'com.innovativeapps'
+version = '0.0.1-SNAPSHOT'
+sourceCompatibility = '1.8'
+
+
+repositories {
+    mavenCentral()
+    maven { url 'https://repo.spring.io/milestone' }
+    maven { url 'https://repo.spring.io/snapshot' }
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-jersey'
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    providedRuntime 'org.springframework.boot:spring-boot-starter-tomcat'
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    implementation 'org.glassfish.jersey.core:jersey-server:2.33'
+
+    implementation 'mysql:mysql-connector-java:8.0.23'
+    implementation 'org.eclipse.persistence:eclipselink:2.7.7'
+
+    implementation 'org.flywaydb:flyway-core'
+    implementation 'io.swagger:swagger-jersey2-jaxrs:1.5.3'
+    implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
+
+}
+
+def appContext = "${appContext}"
+def mysqlUser = System.env.MYSQL_USER ?: mysqlUser
+def mysqlPassword = System.env.MYSQL_PASSWORD ?: mysqlPassword
+def dbUrl = System.env.DB_URL ?: dbUrl
+def migrationDir = System.env.MIGRATION_DIR ?: migrationDir
+
+flyway {
+    user = mysqlUser
+    password = mysqlPassword
+    url = dbUrl
+    locations=["filesystem:$migrationDir"]
+    sqlMigrationPrefix= appContext
+    baselineOnMigrate=true
+    outOfOrder=true //to allow migration of lower than current version
+}
+
+
+task prefixNewMigrations {
+
+    fileTree(dir: migrationDir).exclude({ isFilePrefixed(it.file) }).each { file ->
+        doLast {
+            def timestamp = new Date().format('yyyyMMddHHmmssSSS', TimeZone.getTimeZone('GMT'))
+
+            println "Renaming $file.name to ${appContext}${timestamp}__$file.name"
+
+            file.renameTo("$file.parentFile.absolutePath$file.separator${appContext}${timestamp}__$file.name")
+
+            // Sleep for a moment to avoid prefix conflicts when renaming multiple files
+            sleep(1*1000)
+        }
+    }
+}
+
+def isFilePrefixed(file) {
+    return (file.name ==~ '^.*\\d+__.*\\.sql\$')
+}
+
+flywayInfo.dependsOn prefixNewMigrations
+flywayMigrate.dependsOn prefixNewMigrations
+
+test {
+    useJUnitPlatform()
+}
+
